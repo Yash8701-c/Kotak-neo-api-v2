@@ -13,3 +13,5 @@ websocket-client==1.8.0
 websockets==8.1
 pandas==2.2.3
 asyncio==3.4.3
+pyotp
+neo_api_client
