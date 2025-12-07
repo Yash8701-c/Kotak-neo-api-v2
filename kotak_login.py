@@ -36,14 +36,8 @@ def main():
     # 1. Retrieve Credentials
     print_step("Retrieving credentials from environment variables...")
 
-    # In some versions of the library, WSO2 Consumer Key/Secret are required.
-    # In others (like the one in this repo), they might be commented out.
-    # We load them to be safe, but fallback logic handles the initialization.
+    # Try using CONSUMER_KEY first (standard), then fallback to NEO_APP_TOKEN if user configured it that way
     consumer_key = os.getenv("CONSUMER_KEY")
-    consumer_secret = os.getenv("CONSUMER_SECRET")
-
-    # Try using NEO_APP_TOKEN if CONSUMER_KEY is not set,
-    # as some docs suggest the "token" goes into "consumer_key".
     if not consumer_key:
         consumer_key = os.getenv("NEO_APP_TOKEN")
 
@@ -55,7 +49,6 @@ def main():
     # Validate credentials
     missing_vars = []
     if not consumer_key: missing_vars.append("CONSUMER_KEY (or NEO_APP_TOKEN)")
-    # Note: consumer_secret might be mandatory in the user's environment even if not here.
     if not mobile_number: missing_vars.append("KOTAK_MOBILE_NUMBER")
     if not ucc: missing_vars.append("KOTAK_UCC")
     if not mpin: missing_vars.append("KOTAK_MPIN")
@@ -74,25 +67,12 @@ def main():
 
     # 3. Initialize NeoAPI Client
     print_step("Initializing NeoAPI Client...")
-    client = None
     try:
-        # Attempt initialization with consumer_secret (User's environment requirement)
-        if consumer_secret:
-            try:
-                client = NeoAPI(environment='prod', consumer_key=consumer_key, consumer_secret=consumer_secret)
-                print_success("NeoAPI Client initialized with Consumer Secret.")
-            except TypeError:
-                # Fallback for local repo version which doesn't accept consumer_secret
-                print("[INFO] Local library version does not accept consumer_secret. Retrying without it...")
-                client = NeoAPI(environment='prod', consumer_key=consumer_key)
-                print_success("NeoAPI Client initialized (without Consumer Secret).")
-        else:
-            client = NeoAPI(environment='prod', consumer_key=consumer_key)
-            print_success("NeoAPI Client initialized.")
-
+        # Initializing without consumer_secret as confirmed by user success
+        client = NeoAPI(environment='prod', consumer_key=consumer_key)
+        print_success("NeoAPI Client initialized.")
     except Exception as e:
         print_error("Failed to initialize NeoAPI Client", str(e))
-        print("[HINT] Ensure you have the correct library version and credentials.")
         sys.exit(1)
 
     # 4. TOTP Login (Step 1 of 2FA)
@@ -137,7 +117,7 @@ def main():
         if isinstance(positions, dict) and 'error' in positions:
              print_error("Failed to fetch positions (Session might be invalid)", json.dumps(positions, indent=2))
         elif isinstance(positions, dict) and 'stCode' in positions and positions['stCode'] != 200:
-             # Handle non-standard success codes
+             # Handle non-standard success codes (like 5203 No Data)
              print_success("Session verified! API responded.")
              print(json.dumps(positions, indent=2))
         else:
