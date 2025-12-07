@@ -205,7 +205,27 @@ class KotakORBStrategy:
     def load_scrip_master(self):
         log("📥 Loading Scrip Master (this may take a moment)...")
         try:
-            scrips = self.client.scrip_master(exchange_segment="nse_cm")
+            scrip_data = self.client.scrip_master(exchange_segment="nse_cm")
+
+            # 1. Handle URL response (which is the standard for Kotak Neo v2)
+            if isinstance(scrip_data, str):
+                log("   > Downloading Scrip Master CSV...")
+                import io
+                resp = requests.get(scrip_data)
+                resp.raise_for_status()
+                # Use pandas to parse CSV efficiently
+                df_scrips = pd.read_csv(io.StringIO(resp.text), low_memory=False)
+                # Clean header names (strip whitespace) just in case
+                df_scrips.columns = df_scrips.columns.str.strip()
+                # Convert to dict for compatibility with existing loop
+                scrips = df_scrips.to_dict('records')
+
+            # 2. Handle List response (if legacy or direct)
+            elif isinstance(scrip_data, list):
+                scrips = scrip_data
+            else:
+                 raise ValueError(f"Unknown Scrip Master response type: {type(scrip_data)}")
+
             for scrip in scrips:
                 symbol_name = scrip.get('pSymbolName') or scrip.get('pSymbol')
                 trading_symbol = scrip.get('pTrdSymbol')
@@ -218,9 +238,9 @@ class KotakORBStrategy:
                 for s in SYMBOLS_TO_TRADE:
                     target_sym = clean_sym_from_list(s)
                     if target_sym == trading_symbol or target_sym == symbol_name:
-                         self.tokens_map[s] = token
-                         self.reverse_map[token] = s
-                         self.token_list_for_sub.append({"instrument_token": token, "exchange_segment": "nse_cm"})
+                         self.tokens_map[s] = str(token)
+                         self.reverse_map[str(token)] = s
+                         self.token_list_for_sub.append({"instrument_token": str(token), "exchange_segment": "nse_cm"})
                          self.live_ticks[s] = []
 
             log(f"✅ Loaded {len(self.token_list_for_sub)} tokens for monitoring.")
