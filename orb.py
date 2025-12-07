@@ -194,8 +194,19 @@ class KotakORBStrategy:
                  self.client = NeoAPI(environment='prod', consumer_key=consumer_key)
 
             totp = pyotp.TOTP(totp_secret).now()
-            self.client.totp_login(mobile_number=mobile, ucc=ucc, totp=totp)
-            self.client.totp_validate(mpin=mpin)
+
+            # Step 1: TOTP Login
+            login_resp = self.client.totp_login(mobile_number=mobile, ucc=ucc, totp=totp)
+            if isinstance(login_resp, dict) and ('error' in login_resp or 'Error' in login_resp):
+                log(f"❌ Login Step 1 Failed: {login_resp}")
+                sys.exit(1)
+
+            # Step 2: MPIN Validation
+            validate_resp = self.client.totp_validate(mpin=mpin)
+            if isinstance(validate_resp, dict) and ('error' in validate_resp or 'Error' in validate_resp):
+                log(f"❌ Login Step 2 (MPIN) Failed: {validate_resp}")
+                sys.exit(1)
+
             log("✅ Login Successful.")
 
         except Exception as e:
@@ -310,27 +321,64 @@ class KotakORBStrategy:
             yf_sym = f"{clean_sym}.NS"
 
             try:
-                # Fetch 5 days to ensure enough data for indicators
-                df = yf.download(yf_sym, period="5d", interval="5m", progress=False)
+                # Retry logic for network/decoding errors
+                max_retries = 3
+                df = pd.DataFrame()
+
+                for attempt in range(max_retries):
+                    try:
+                        # Fetch 5 days to ensure enough data for indicators
+                        # yfinance 0.2.66 handles sessions internally with curl_cffi where needed
+                        # Adding delay to avoid rate limiting
+                        if attempt > 0:
+                            log(f"   Using retry {attempt+1}/{max_retries} for {symbol}...")
+                            time.sleep(2)
+
+                        df = yf.download(yf_sym, period="5d", interval="5m", progress=False)
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            continue
+                        else:
+                            raise e
 
                 if not df.empty:
+                    # Handle MultiIndex columns (yfinance > 0.2.0)
                     if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
+                        try:
+                            # Try to extract 'Price' level if it exists, otherwise just drop the top level
+                            # yfinance typically returns (Price, Ticker)
+                            df.columns = df.columns.get_level_values(0)
+                        except Exception:
+                            pass
 
-                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                    df.columns = ['open', 'high', 'low', 'close', 'volume']
+                    # Normalize columns to lowercase
+                    df.columns = df.columns.str.lower()
+
+                    # Ensure required columns exist
+                    required = ['open', 'high', 'low', 'close', 'volume']
+                    if not all(col in df.columns for col in required):
+                         log(f"⚠️ Data for {symbol} missing required columns. Got: {df.columns.tolist()}")
+                         self.candles[symbol] = pd.DataFrame(columns=required)
+                         continue
+
+                    df = df[required].copy()
 
                     # Ensure timezone-naive datetime
-                    df.index = df.index.tz_localize(None)
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
 
                     self.candles[symbol] = df
                     self.last_candle_time[symbol] = df.index[-1]
+                    # log(f"   > {symbol}: Loaded {len(df)} candles.")
                 else:
-                    log(f"⚠️ No data for {symbol}")
+                    log(f"⚠️ No data returned for {symbol}")
                     self.candles[symbol] = pd.DataFrame(columns=['open', 'high', 'low', 'close', 'volume'])
 
             except Exception as e:
                 log(f"❌ Error fetching {symbol}: {e}")
+                log(f"   > Strategy will start without historical data for {symbol}.")
+                log(f"   > Indicators (ADX, RSI) will need ~70-80 mins of live data to be valid.")
                 self.candles[symbol] = pd.DataFrame(columns=['open', 'high', 'low', 'close', 'volume'])
 
     def start_websocket(self):
@@ -350,10 +398,16 @@ class KotakORBStrategy:
             log("wss Connected. Subscribing...")
             self.client.subscribe(instrument_tokens=self.token_list_for_sub)
 
+        def on_close(msg):
+            log(f"wss Connection Closed: {msg}")
+
         self.client.on_message = on_message
         self.client.on_error = on_error
         self.client.on_open = on_open
-        self.client.subscribe(instrument_tokens=self.token_list_for_sub)
+        self.client.on_close = on_close
+
+        # Trigger subscription immediately if connection is already open (unlikely here but safe)
+        # self.client.subscribe(instrument_tokens=self.token_list_for_sub)
 
     def process_tick(self, tick):
         token = tick.get('tk')
