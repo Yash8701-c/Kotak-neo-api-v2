@@ -3,3 +3,5 @@ python-dotenv
 neo_api_client
 yfinance
 requests
+pandas
+numpy
