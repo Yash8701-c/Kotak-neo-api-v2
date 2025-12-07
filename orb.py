@@ -205,49 +205,102 @@ class KotakORBStrategy:
     def load_scrip_master(self):
         log("📥 Loading Scrip Master (this may take a moment)...")
         try:
+            # 1. Attempt standard call
             scrip_data = self.client.scrip_master(exchange_segment="nse_cm")
 
-            # 1. Handle URL response (which is the standard for Kotak Neo v2)
-            if isinstance(scrip_data, str):
-                log("   > Downloading Scrip Master CSV...")
-                import io
-                resp = requests.get(scrip_data)
-                resp.raise_for_status()
-                # Use pandas to parse CSV efficiently
-                df_scrips = pd.read_csv(io.StringIO(resp.text), low_memory=False)
-                # Clean header names (strip whitespace) just in case
-                df_scrips.columns = df_scrips.columns.str.strip()
-                # Convert to dict for compatibility with existing loop
-                scrips = df_scrips.to_dict('records')
+            csv_url = None
+            scrips_list = None
 
-            # 2. Handle List response (if legacy or direct)
+            if isinstance(scrip_data, str):
+                csv_url = scrip_data
+
             elif isinstance(scrip_data, list):
-                scrips = scrip_data
+                # Legacy or direct list return
+                scrips_list = scrip_data
+
+            elif isinstance(scrip_data, dict):
+                # Likely an error, e.g. {'Error': 'Exchange segment not found'}
+                log(f"⚠️ Standard lookup returned a dictionary (likely error): {scrip_data}")
+                log("🔄 Attempting fallback: Fetching all scrip files to find NSE CM manually...")
+
+                # 2. Fallback: Fetch all files
+                all_data = self.client.scrip_master()
+
+                if isinstance(all_data, dict) and "filesPaths" in all_data:
+                    files = all_data["filesPaths"]
+                    log(f"   > Found {len(files)} available scrip files.")
+
+                    # Search for 'nse_cm' first, then looser search
+                    matches = [f for f in files if "nse_cm" in f.lower()]
+
+                    if not matches:
+                        # Try looser search (e.g. 'nse' and 'cm' in filename)
+                        matches = [f for f in files if "nse" in f.lower() and "cm" in f.lower()]
+
+                    if matches:
+                        # Prefer the one with 'equity' or 'cash' if multiple?
+                        # Usually there is only one valid main file. Pick first.
+                        csv_url = matches[0]
+                        log(f"   > Found fallback match: {csv_url}")
+                    else:
+                        log(f"❌ Could not find a file matching 'nse_cm' in available files.")
+                        raise ValueError(f"NSE CM scrip file not found. Available: {files}")
+                else:
+                    log(f"❌ Fallback also failed. API Response: {all_data}")
+                    raise ValueError(f"Failed to fetch scrip files list.")
             else:
                  raise ValueError(f"Unknown Scrip Master response type: {type(scrip_data)}")
 
-            for scrip in scrips:
-                symbol_name = scrip.get('pSymbolName') or scrip.get('pSymbol')
-                trading_symbol = scrip.get('pTrdSymbol')
-                token = scrip.get('pScripRefKey')
+            # 3. Download and Parse if we have a URL
+            if csv_url:
+                log(f"   > Downloading Scrip Master CSV...")
+                import io
+                resp = requests.get(csv_url)
+                resp.raise_for_status()
 
-                if not token or not trading_symbol: continue
+                # Use pandas to parse CSV efficiently
+                df_scrips = pd.read_csv(io.StringIO(resp.text), low_memory=False)
+                df_scrips.columns = df_scrips.columns.str.strip()
+                scrips_list = df_scrips.to_dict('records')
 
-                clean_sym_from_list = lambda s: s.split(':')[1]
+            if not scrips_list:
+                raise ValueError("No Scrip Data loaded.")
 
-                for s in SYMBOLS_TO_TRADE:
-                    target_sym = clean_sym_from_list(s)
-                    if target_sym == trading_symbol or target_sym == symbol_name:
-                         self.tokens_map[s] = str(token)
-                         self.reverse_map[str(token)] = s
-                         self.token_list_for_sub.append({"instrument_token": str(token), "exchange_segment": "nse_cm"})
-                         self.live_ticks[s] = []
-
-            log(f"✅ Loaded {len(self.token_list_for_sub)} tokens for monitoring.")
+            # 4. Process the list
+            self.process_scrip_list(scrips_list)
 
         except Exception as e:
             log(f"❌ Failed to load Scrip Master: {e}")
+            # print full stack trace for debugging if needed, or just exit
             sys.exit(1)
+
+    def process_scrip_list(self, scrips):
+        count = 0
+        for scrip in scrips:
+            symbol_name = scrip.get('pSymbolName') or scrip.get('pSymbol')
+            trading_symbol = scrip.get('pTrdSymbol')
+            token = scrip.get('pScripRefKey')
+
+            if not token or not trading_symbol: continue
+
+            # Helper to extract clean symbol from "NSE:SBIN" -> "SBIN"
+            clean_sym_from_list = lambda s: s.split(':')[1]
+
+            for s in SYMBOLS_TO_TRADE:
+                target_sym = clean_sym_from_list(s)
+
+                # Check match against either Trading Symbol or Symbol Name
+                if target_sym == trading_symbol or target_sym == symbol_name:
+                     self.tokens_map[s] = str(token)
+                     self.reverse_map[str(token)] = s
+                     self.token_list_for_sub.append({"instrument_token": str(token), "exchange_segment": "nse_cm"})
+                     self.live_ticks[s] = []
+                     count += 1
+
+        if count == 0:
+            log("⚠️ Warning: No tokens matched your SYMBOLS_TO_TRADE list.")
+        else:
+            log(f"✅ Loaded {len(self.token_list_for_sub)} tokens for monitoring.")
 
     def fetch_warmup_data(self):
         log("🔥 Fetching warm-up data from Yahoo Finance...")
