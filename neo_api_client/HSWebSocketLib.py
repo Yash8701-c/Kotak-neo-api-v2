@@ -1189,6 +1189,13 @@ class HSWebSocket:
     def hs_send(self, d):
         req_json = json.loads(d)
         req_type = req_json[Keys.get("TYPE")]
+
+        # Handle 'hb' heartbeat request specifically as a text frame
+        if req_type == "hb":
+            if ws:
+                ws.send(d)
+            return
+
         # print("Req Type", req_type)
         req = {}
         if Keys.get("SCRIPS") in req_json:

@@ -323,8 +323,7 @@ class KotakORBStrategy:
         while not self.is_shutting_down:
             time.sleep(20)
             try:
-                # 1. Stock Feed Heartbeat (HSWebSocket) - HANDLED BY LIBRARY FIX NOW (ping_interval=30)
-                # We do not need to manually ping HSWebSocketLib.ws anymore.
+                # 1. Stock Feed Heartbeat (HSWebSocket) - Now handled by library thread (enabled in NeoWebSocket.py)
 
                 # 2. Order Feed Heartbeat (HSIWebSocket)
                 # This one supports 'HB' type message via the send method.
@@ -334,6 +333,7 @@ class KotakORBStrategy:
                     # log("   -> Sent HB (Order Feed)")
 
             except Exception as e:
+                # Don't spam logs if it fails, just retry next loop
                 pass
 
     def start_websocket(self):

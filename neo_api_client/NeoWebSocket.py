@@ -95,7 +95,7 @@ class NeoWebSocket:
                     self.is_hsw_open = 1
                     # Uncomment this to start HSM ping thread
                     # And add logic to send binary data to websocket
-                    # threading.Thread(target=self.start_hsm_ping_thread).start()
+                    threading.Thread(target=self.start_hsm_ping_thread).start()
 
                     if len(self.quotes_arr) >= 1:
                         self.call_quotes()
