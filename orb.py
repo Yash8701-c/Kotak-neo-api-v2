@@ -354,8 +354,7 @@ class KotakORBStrategy:
 
         def on_open(msg):
             log("wss Connected. Subscribing...")
-            # REMOVED double subscription here to prevent immediate disconnects
-            # self.client.subscribe(instrument_tokens=self.token_list_for_sub)
+            # Subscriptions are handled by the library's on_open or explicitly below
 
         # FIX: Auto-Reconnect Logic in on_close
         def on_close(msg):

@@ -1190,10 +1190,10 @@ class HSWebSocket:
         req_json = json.loads(d)
         req_type = req_json[Keys.get("TYPE")]
 
-        # Handle 'hb' heartbeat request specifically as a text frame
+        # Handle 'hb' heartbeat request specifically as a binary frame
         if req_type == "hb":
             if ws:
-                ws.send(d)
+                ws.send(d.encode('utf-8'), 0x2)
             return
 
         # print("Req Type", req_type)
