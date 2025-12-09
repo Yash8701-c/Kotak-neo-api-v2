@@ -316,26 +316,6 @@ class KotakORBStrategy:
                 log(f"❌ Error loading CSV for {symbol}: {e}")
                 self.candles[symbol] = pd.DataFrame(columns=['open', 'high', 'low', 'close', 'volume'])
 
-    # --- WEBSOCKET HEARTBEAT FIX ---
-    def keep_alive_worker(self):
-        """Sends a Heartbeat (HB) message every 20 seconds to prevent disconnection."""
-        log("💓 Keep-Alive Thread Started")
-        while not self.is_shutting_down:
-            time.sleep(20)
-            try:
-                # 1. Stock Feed Heartbeat (HSWebSocket) - Now handled by library thread (enabled in NeoWebSocket.py)
-
-                # 2. Order Feed Heartbeat (HSIWebSocket)
-                # This one supports 'HB' type message via the send method.
-                if self.client.NeoWebSocket and self.client.NeoWebSocket.hsiWebsocket:
-                    payload = json.dumps({"type": "HB"})
-                    self.client.NeoWebSocket.hsiWebsocket.send(payload)
-                    # log("   -> Sent HB (Order Feed)")
-
-            except Exception as e:
-                # Don't spam logs if it fails, just retry next loop
-                pass
-
     def start_websocket(self):
         log("wss Connecting to WebSocket...")
 
@@ -376,11 +356,6 @@ class KotakORBStrategy:
             log("wss Connected. Subscribing...")
             # REMOVED double subscription here to prevent immediate disconnects
             # self.client.subscribe(instrument_tokens=self.token_list_for_sub)
-
-            # Start Keep-Alive Thread once connected
-            if not self.heartbeat_thread or not self.heartbeat_thread.is_alive():
-                self.heartbeat_thread = threading.Thread(target=self.keep_alive_worker, daemon=True)
-                self.heartbeat_thread.start()
 
         # FIX: Auto-Reconnect Logic in on_close
         def on_close(msg):

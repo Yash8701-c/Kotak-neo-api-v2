@@ -44,15 +44,21 @@ class NeoWebSocket:
 
     def start_hsi_ping_thread(self):
         while self.hsiWebsocket and self.is_hsi_open:
-            time.sleep(30)
-            payload = {"type": "HB"}
-            self.hsiWebsocket.send(json.dumps(payload))
+            time.sleep(20)
+            try:
+                payload = {"type": "HB"}
+                self.hsiWebsocket.send(json.dumps(payload))
+            except Exception:
+                pass
 
     def start_hsm_ping_thread(self):
         while self.hsWebsocket and self.is_hsw_open:
-            time.sleep(29)
-            payload = {"type": "hb"}
-            self.hsWebsocket.hs_send(json.dumps(payload))
+            time.sleep(20)
+            try:
+                payload = {"type": "hb"}
+                self.hsWebsocket.hs_send(json.dumps(payload))
+            except Exception:
+                pass
 
     def start_websocket(self):
         self.hsWebsocket = neo_api_client.HSWebSocket()
