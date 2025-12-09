@@ -1126,7 +1126,8 @@ class StartServer:
         else:
             print("WebSocket not initialized!")
 
-        ws.run_forever(ping_interval=0, reconnect=5,sslopt={"cert_reqs": ssl.CERT_NONE})
+        # FIX: Enable automatic pings (every 30s) to keep connection alive
+        ws.run_forever(ping_interval=30, reconnect=5,sslopt={"cert_reqs": ssl.CERT_NONE})
 
     def on_open(self, ws):
         # print("[OnOpen]: Function is running in HSWebscoket")

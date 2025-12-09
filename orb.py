@@ -323,13 +323,8 @@ class KotakORBStrategy:
         while not self.is_shutting_down:
             time.sleep(20)
             try:
-                # 1. Stock Feed Heartbeat (HSWebSocket)
-                # The library uses a global 'ws' object in HSWebSocketLib.
-                # standard 'hs_send' does NOT support 'hb' type, so we must ping the socket directly.
-                import neo_api_client.HSWebSocketLib as HSLib
-                if HSLib.ws and HSLib.ws.sock and HSLib.ws.sock.connected:
-                    HSLib.ws.sock.ping()
-                    # log("   -> Sent HB (Stock Feed)")
+                # 1. Stock Feed Heartbeat (HSWebSocket) - HANDLED BY LIBRARY FIX NOW (ping_interval=30)
+                # We do not need to manually ping HSWebSocketLib.ws anymore.
 
                 # 2. Order Feed Heartbeat (HSIWebSocket)
                 # This one supports 'HB' type message via the send method.
@@ -339,8 +334,6 @@ class KotakORBStrategy:
                     # log("   -> Sent HB (Order Feed)")
 
             except Exception as e:
-                # Don't spam logs if it fails, just retry next loop
-                # log(f"HB Error: {e}")
                 pass
 
     def start_websocket(self):
@@ -409,6 +402,7 @@ class KotakORBStrategy:
         self.client.on_close = on_close
 
         # This call initiates the connection AND subscribes
+        log(f"📋 Subscribing to {len(self.token_list_for_sub)} tokens.")
         self.client.subscribe(instrument_tokens=self.token_list_for_sub)
 
         # Also subscribe to Order Feed as per best practices
