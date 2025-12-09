@@ -13,7 +13,6 @@ from decimal import Decimal, ROUND_HALF_UP
 # We import the NeoAPI client and dotenv
 from dotenv import load_dotenv
 from neo_api_client import NeoAPI
-import neo_api_client.HSWebSocketLib as HSWebSocketLib
 import pyotp
 
 # ==========================================
@@ -324,17 +323,24 @@ class KotakORBStrategy:
         while not self.is_shutting_down:
             time.sleep(20)
             try:
-                # Fix: Access the global websocket object from the library directly
-                # The library does not support "hb" messages in hs_send, so we send a raw ping frame.
-                if HSWebSocketLib.ws and HSWebSocketLib.ws.sock and HSWebSocketLib.ws.sock.connected:
-                    HSWebSocketLib.ws.sock.ping()
-                    # log("   -> Sent WebSocket Ping")
-                else:
-                    # Optional: Log if socket is not available
-                    pass
+                # 1. Stock Feed Heartbeat (HSWebSocket)
+                # The library uses a global 'ws' object in HSWebSocketLib.
+                # standard 'hs_send' does NOT support 'hb' type, so we must ping the socket directly.
+                import neo_api_client.HSWebSocketLib as HSLib
+                if HSLib.ws and HSLib.ws.sock and HSLib.ws.sock.connected:
+                    HSLib.ws.sock.ping()
+                    # log("   -> Sent HB (Stock Feed)")
+
+                # 2. Order Feed Heartbeat (HSIWebSocket)
+                # This one supports 'HB' type message via the send method.
+                if self.client.NeoWebSocket and self.client.NeoWebSocket.hsiWebsocket:
+                    payload = json.dumps({"type": "HB"})
+                    self.client.NeoWebSocket.hsiWebsocket.send(payload)
+                    # log("   -> Sent HB (Order Feed)")
+
             except Exception as e:
                 # Don't spam logs if it fails, just retry next loop
-                # log(f"Ping failed: {e}")
+                # log(f"HB Error: {e}")
                 pass
 
     def start_websocket(self):
@@ -389,8 +395,6 @@ class KotakORBStrategy:
                 log("⚠️ wss Connection Closed Unexpectedly. Reconnecting in 5s...")
                 time.sleep(5)
                 try:
-                    # Force a fresh connection by clearing the old instance
-                    self.client.NeoWebSocket = None
                     self.client.subscribe(instrument_tokens=self.token_list_for_sub)
                     # Also re-subscribe to order feed
                     self.client.subscribe_to_orderfeed()
