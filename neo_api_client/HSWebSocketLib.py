@@ -1126,7 +1126,8 @@ class StartServer:
         else:
             print("WebSocket not initialized!")
 
-        ws.run_forever(ping_interval=0, reconnect=5,sslopt={"cert_reqs": ssl.CERT_NONE})
+        # FIX: Enable automatic pings (every 30s) to keep connection alive
+        ws.run_forever(ping_interval=30, reconnect=5,sslopt={"cert_reqs": ssl.CERT_NONE})
 
     def on_open(self, ws):
         # print("[OnOpen]: Function is running in HSWebscoket")
@@ -1188,6 +1189,13 @@ class HSWebSocket:
     def hs_send(self, d):
         req_json = json.loads(d)
         req_type = req_json[Keys.get("TYPE")]
+
+        # Handle 'hb' heartbeat request specifically as a binary frame
+        if req_type == "hb":
+            if ws:
+                ws.send(d.encode('utf-8'), 0x2)
+            return
+
         # print("Req Type", req_type)
         req = {}
         if Keys.get("SCRIPS") in req_json:
